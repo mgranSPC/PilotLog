@@ -50,11 +50,27 @@ function normalizeState(data) {
   if (!data || typeof data !== "object") return null;
   if (!Array.isArray(data.aircraft) || !Array.isArray(data.flights)) return null;
   return {
-    version: 1,
+    version: 2,
     aircraft: data.aircraft.filter(a => a && a.id && a.reg != null),
-    flights: data.flights.filter(f => f && f.id && f.date),
+    flights: data.flights.filter(f => f && f.id && f.date).map(migrateFlight),
     customTypes: Array.isArray(data.customTypes) ? data.customTypes.filter(t => typeof t === "string") : [],
   };
+}
+
+// v1 stored per-category booleans in `flags`; v2 stores hours in `hoursBy`.
+// A checked v1 flag becomes the flight's full hours in that category.
+function migrateFlight(f) {
+  const hoursBy = {};
+  for (const fl of FLAGS) {
+    if (f.hoursBy && typeof f.hoursBy === "object") {
+      const v = Number(f.hoursBy[fl.key]);
+      hoursBy[fl.key] = Number.isFinite(v) && v > 0 ? Math.round(v * 10) / 10 : 0;
+    } else {
+      hoursBy[fl.key] = f.flags?.[fl.key] ? f.hours : 0;
+    }
+  }
+  const { flags, ...rest } = f;
+  return { ...rest, hoursBy };
 }
 
 function saveState() {
@@ -169,8 +185,12 @@ function renderLog() {
 
   $("#flight-list").innerHTML = flights.map(f => {
     const a = aircraftById(f.aircraftId);
-    const chips = FLAGS.filter(fl => f.flags[fl.key])
-      .map(fl => `<span class="chip">${FLAG_SHORT[fl.key]}</span>`).join("");
+    const chips = FLAGS.filter(fl => f.hoursBy[fl.key] > 0)
+      .map(fl => {
+        const v = f.hoursBy[fl.key];
+        const partial = v < f.hours - 0.05; // show hours when only part of the flight applies
+        return `<span class="chip">${FLAG_SHORT[fl.key]}${partial ? " " + fmtHours(v) : ""}</span>`;
+      }).join("");
     return `
       <div class="card" data-id="${esc(f.id)}">
         <div class="card-top">
@@ -271,8 +291,9 @@ function computeTotals(flights) {
     t.landings += f.landings;
 
     for (const fl of FLAGS) {
-      if (f.flags[fl.key]) {
-        t.byFlag[fl.key].hours += f.hours;
+      const h = f.hoursBy[fl.key];
+      if (h > 0) {
+        t.byFlag[fl.key].hours += h;
         t.byFlag[fl.key].flights += 1;
       }
     }
@@ -380,12 +401,42 @@ $("#totals-period").addEventListener("change", renderTotals);
 const flightDialog = $("#flight-dialog");
 const flightForm = $("#flight-form");
 
-function buildFlagCheckboxes(flags = {}) {
-  $("#flight-flags").innerHTML = "<legend>Flight conditions</legend>" +
-    FLAGS.map(fl => `
-      <label><input type="checkbox" name="flag-${fl.key}" ${flags[fl.key] ? "checked" : ""}> ${fl.label}</label>
-    `).join("");
+function buildCategoryInputs(hoursBy = {}) {
+  $("#flight-cats").innerHTML = "<legend>Time by category (hours)</legend>" +
+    FLAGS.map(fl => {
+      const v = hoursBy[fl.key] > 0 ? hoursBy[fl.key] : "";
+      return `
+        <div class="cat-row">
+          <label>
+            <input type="checkbox" data-cat="${fl.key}" ${v !== "" ? "checked" : ""}>
+            <span>${fl.label}</span>
+          </label>
+          <input type="number" name="cat-${fl.key}" min="0" step="0.1" inputmode="decimal"
+                 value="${v}" aria-label="${fl.label} hours">
+        </div>`;
+    }).join("");
 }
+
+// Checkbox = quick-fill: check to copy the total, uncheck to clear.
+// Typing hours directly keeps the checkbox in sync.
+$("#flight-cats").addEventListener("change", e => {
+  const cb = e.target.closest("input[type=checkbox][data-cat]");
+  if (!cb) return;
+  const numInput = flightForm.elements["cat-" + cb.dataset.cat];
+  if (cb.checked) {
+    const total = parseFloat(flightForm.elements.hours.value);
+    if (total > 0) numInput.value = Math.round(total * 10) / 10;
+    else { cb.checked = false; flightForm.elements.hours.focus(); }
+  } else {
+    numInput.value = "";
+  }
+});
+$("#flight-cats").addEventListener("input", e => {
+  const num = e.target.closest("input[type=number]");
+  if (!num) return;
+  const key = num.name.replace("cat-", "");
+  $(`#flight-cats input[data-cat="${key}"]`).checked = parseFloat(num.value) > 0;
+});
 
 function openFlightDialog(flightId = null) {
   if (!state.aircraft.length) {
@@ -412,7 +463,7 @@ function openFlightDialog(flightId = null) {
   flightForm.elements.takeoffs.value = f ? f.takeoffs : 1;
   flightForm.elements.landings.value = f ? f.landings : 1;
   flightForm.elements.remarks.value = f ? (f.remarks || "") : "";
-  buildFlagCheckboxes(f ? f.flags : {});
+  buildCategoryInputs(f ? f.hoursBy : {});
 
   flightDialog.showModal();
 }
@@ -442,8 +493,17 @@ flightForm.addEventListener("submit", e => {
     return;
   }
 
-  const flags = {};
-  for (const fl of FLAGS) flags[fl.key] = el["flag-" + fl.key].checked;
+  const roundedHours = Math.round(hours * 10) / 10;
+  const hoursBy = {};
+  for (const fl of FLAGS) {
+    const v = parseFloat(el["cat-" + fl.key].value);
+    hoursBy[fl.key] = Number.isFinite(v) && v > 0 ? Math.round(v * 10) / 10 : 0;
+    if (hoursBy[fl.key] > roundedHours + 0.001) {
+      errBox.textContent = `${fl.label} time (${fmtHours(hoursBy[fl.key])}) can't exceed the flight's total hours (${fmtHours(roundedHours)}).`;
+      errBox.hidden = false;
+      return;
+    }
+  }
 
   const flight = {
     id: editingFlightId || uid(),
@@ -453,8 +513,8 @@ flightForm.addEventListener("submit", e => {
     date,
     aircraftId: el.aircraftId.value,
     from, to,
-    hours: Math.round(hours * 10) / 10,
-    takeoffs, landings, flags,
+    hours: roundedHours,
+    takeoffs, landings, hoursBy,
     remarks: el.remarks.value.trim(),
   };
 
@@ -607,7 +667,7 @@ $("#export-csv").addEventListener("click", () => {
     return [
       f.date, a?.reg ?? "", a?.make ?? "", a?.model ?? "", f.from, f.to,
       f.hours, f.takeoffs, f.landings,
-      ...FLAGS.map(fl => (f.flags[fl.key] ? "Y" : "")),
+      ...FLAGS.map(fl => (f.hoursBy[fl.key] > 0 ? f.hoursBy[fl.key] : "")),
       f.remarks ?? "",
     ].map(q).join(",");
   });

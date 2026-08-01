@@ -12,10 +12,12 @@ as a Progressive Web App — one codebase, no app store, works offline.
   Piston, Turbine, Jet, Helicopter, Glider — plus any custom types you add.
 
 **Logbook**
-- Each flight records: date, start location, end location, hours,
+- Each flight records: date, start location, end location, total hours,
   takeoffs, and landings.
-- Check off the conditions that apply: Solo, Cross Country, Day, Night,
-  Pilot in Command, Dual, IFR, VFR.
+- Hours are split per category like a paper logbook: Solo, Cross Country,
+  Day, Night, Pilot in Command, Dual, IFR, VFR each have their own hours
+  column. Ticking a category's box copies the flight's total into it; adjust
+  the number when only part of the flight applies (e.g. 1.2 night out of 3.0).
 - Optional remarks, edit/delete, and filtering by year and aircraft.
 
 **Totals**
@@ -25,8 +27,8 @@ as a Progressive Web App — one codebase, no app store, works offline.
 - Year-by-year breakdown across every category with a **running (cumulative)
   hours total**.
 
-Note on categories: a flight's full hours count toward every condition you check.
-If a flight spans day and night, check both and the hours appear under both.
+Older backups (v1, where categories were simple checkboxes) import cleanly:
+a checked category becomes the flight's full hours in that category.
 
 ## Running it
 

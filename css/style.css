@@ -423,6 +423,40 @@ fieldset.check-grid input[type="checkbox"] {
   accent-color: var(--brand);
 }
 
+fieldset.cat-grid {
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 6px 16px;
+}
+.cat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cat-row label {
+  flex: 1;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--ink);
+  padding: 5px 0;
+  min-width: 0;
+}
+.cat-row input[type="number"] {
+  width: 76px;
+  flex: none;
+  padding: 7px 8px;
+  text-align: right;
+}
+
+.hint {
+  color: var(--ink-3);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 8px 2px 0;
+}
+
 .add-type-row {
   display: flex;
   gap: 8px;
