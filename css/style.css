@@ -109,6 +109,36 @@ body {
 }
 .dropdown button:hover { background: var(--chip-bg); }
 .dropdown button.danger { color: var(--danger); }
+
+/* sync indicator states */
+#sync-btn.sync-off { opacity: 0.55; }
+#sync-btn.sync-ok { color: #9fe3b0; }
+#sync-btn.sync-busy { animation: spin 1s linear infinite; }
+#sync-btn.sync-error { color: #ffb4ab; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.sync-help {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 12px 0;
+  font-size: 0.86rem;
+  color: var(--ink-2);
+}
+.sync-help summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+.sync-help ol { margin: 10px 0 4px; padding-left: 20px; line-height: 1.55; }
+.sync-help li { margin-bottom: 6px; }
+.sync-help code {
+  background: var(--chip-bg);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 0.85em;
+}
+
+.btn.danger-text { color: var(--danger); margin-right: auto; }
+
+#sync-dialog label.full { margin-top: 10px; }
 .dropdown hr { border: none; border-top: 1px solid var(--line); margin: 6px 0; }
 
 /* ---------- tabs ---------- */
@@ -374,6 +404,7 @@ dialog label {
 dialog label.full { margin-top: 12px; }
 
 dialog input[type="text"],
+dialog input[type="password"],
 dialog input[type="date"],
 dialog input[type="number"],
 dialog select {

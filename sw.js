@@ -1,5 +1,5 @@
 /* PilotLog service worker — offline-first app shell */
-const CACHE = "pilotlog-v2";
+const CACHE = "pilotlog-v3";
 const ASSETS = [
   "./",
   "./index.html",
@@ -26,6 +26,7 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+  if (new URL(e.request.url).origin !== location.origin) return; // e.g. GitHub sync API
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(cached =>
       cached ||

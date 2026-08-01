@@ -49,11 +49,38 @@ It's a static site — no build step, no server-side code.
 
 ## Your data
 
-- Data is stored **on the device** (browser `localStorage`) — nothing is sent
-  anywhere. Phone and desktop each keep their own copy.
-- Use the **⋮ menu → Export backup (JSON)** regularly, and **Import backup** to
-  move your log between devices (import replaces the data on that device).
+- Data is stored **on the device** (browser `localStorage`). With sync off,
+  nothing is sent anywhere.
+- Use the **⋮ menu → Export backup (JSON)** for backups, and **Import backup**
+  to restore one (import replaces the data on that device).
 - **Export flights (CSV)** produces a spreadsheet-friendly copy of the logbook.
+
+## Sync across devices
+
+Turn on sync (the **⟳ button** or **⋮ menu → Sync settings**) to keep every
+device up to date. The logbook is mirrored to a JSON file in a **private GitHub
+repository** on your own account — no third-party service involved.
+
+One-time setup:
+
+1. Create a **private** repository, e.g. `pilotlog-data` (add a README so it
+   isn't empty).
+2. Create a **fine-grained personal access token** (GitHub → Settings →
+   Developer settings → Fine-grained tokens) with *Repository access* limited
+   to that one repo and *Contents: Read and write* permission.
+3. In the app on each device, open Sync settings, paste the token, and enter
+   the repository as `owner/name`.
+
+How it behaves:
+
+- The app syncs on launch, shortly after every change, when it returns to the
+  foreground, and on demand via **⋮ → Sync now**.
+- Devices **merge by entry** (newest edit wins per flight/aircraft), and
+  deletions carry across via tombstones — so logging on your phone and your
+  desktop in the same afternoon combines cleanly.
+- Offline is fine: changes stay local and sync next time you're connected.
+- The token is stored only in that device's browser storage; it is **never**
+  part of JSON backups or CSV exports.
 
 ## Project layout
 

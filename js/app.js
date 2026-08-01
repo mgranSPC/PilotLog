@@ -34,8 +34,12 @@ let currentView = "log";
 let editingFlightId = null;
 let editingAircraftId = null;
 
+function emptyState() {
+  return { version: 2, aircraft: [], flights: [], customTypes: [], deleted: { aircraft: {}, flights: {} } };
+}
+
 function loadState() {
-  const empty = { version: 1, aircraft: [], flights: [], customTypes: [] };
+  const empty = emptyState();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return empty;
@@ -49,12 +53,27 @@ function loadState() {
 function normalizeState(data) {
   if (!data || typeof data !== "object") return null;
   if (!Array.isArray(data.aircraft) || !Array.isArray(data.flights)) return null;
+  const tombs = data.deleted && typeof data.deleted === "object" ? data.deleted : {};
   return {
     version: 2,
     aircraft: data.aircraft.filter(a => a && a.id && a.reg != null),
     flights: data.flights.filter(f => f && f.id && f.date).map(migrateFlight),
     customTypes: Array.isArray(data.customTypes) ? data.customTypes.filter(t => typeof t === "string") : [],
+    deleted: {
+      aircraft: cleanTombstones(tombs.aircraft),
+      flights: cleanTombstones(tombs.flights),
+    },
   };
+}
+
+function cleanTombstones(obj) {
+  const out = {};
+  if (obj && typeof obj === "object") {
+    for (const [id, ts] of Object.entries(obj)) {
+      if (typeof ts === "number" && ts > 0) out[id] = ts;
+    }
+  }
+  return out;
 }
 
 // v1 stored per-category booleans in `flags`; v2 stores hours in `hoursBy`.
@@ -75,6 +94,7 @@ function migrateFlight(f) {
 
 function saveState() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  schedulePushSync();
 }
 
 function uid() {
@@ -221,6 +241,7 @@ $("#flight-list").addEventListener("click", e => {
     const f = state.flights.find(x => x.id === id);
     if (f && confirm(`Delete flight ${f.from} → ${f.to} on ${fmtDate(f.date)}?`)) {
       state.flights = state.flights.filter(x => x.id !== id);
+      state.deleted.flights[id] = Date.now();
       saveState();
       render();
     }
@@ -267,6 +288,7 @@ $("#aircraft-list").addEventListener("click", e => {
       : `Delete ${a.reg}?`;
     if (a && confirm(msg)) {
       state.aircraft = state.aircraft.filter(x => x.id !== id);
+      state.deleted.aircraft[id] = Date.now();
       saveState();
       render();
     }
@@ -510,6 +532,7 @@ flightForm.addEventListener("submit", e => {
     created: editingFlightId
       ? (state.flights.find(x => x.id === editingFlightId)?.created ?? Date.now())
       : Date.now(),
+    updated: Date.now(),
     date,
     aircraftId: el.aircraftId.value,
     from, to,
@@ -592,7 +615,7 @@ aircraftForm.addEventListener("submit", e => {
   }
 
   const types = [...aircraftForm.querySelectorAll('input[name="type"]:checked')].map(c => c.value);
-  const aircraft = { id: editingAircraftId || uid(), reg, make, model, types };
+  const aircraft = { id: editingAircraftId || uid(), reg, make, model, types, updated: Date.now() };
 
   if (editingAircraftId) {
     state.aircraft = state.aircraft.map(x => (x.id === editingAircraftId ? aircraft : x));
@@ -703,11 +726,289 @@ $("#import-file").addEventListener("change", async e => {
 
 $("#erase-all").addEventListener("click", () => {
   menuDropdown.hidden = true;
-  if (!confirm("Erase ALL aircraft and flights on this device? This cannot be undone.")) return;
+  const note = getSyncConfig()
+    ? "\n\nNote: sync is on, so your data will be restored from the sync repository on the next sync. Turn off sync first for a true fresh start."
+    : "";
+  if (!confirm("Erase ALL aircraft and flights on this device? This cannot be undone." + note)) return;
   if (!confirm("Really erase everything? Consider exporting a backup first.")) return;
-  state = { version: 1, aircraft: [], flights: [], customTypes: [] };
+  state = emptyState();
   saveState();
   render();
+});
+
+// ---------- sync (GitHub-backed) ----------
+//
+// The logbook is mirrored to a JSON file in a private GitHub repository via
+// the contents API. Each device merges before it writes: records win by
+// newest `updated` timestamp, deletions are tracked as tombstones so they
+// propagate instead of resurrecting. The token lives only in this device's
+// localStorage (separate key, never part of exports/backups).
+
+const SYNC_KEY = "pilotlog-sync-v1";
+const API_BASE = "https://api.github.com";
+
+let syncing = false;
+let pushTimer = null;
+let lastSyncAt = 0;
+
+function getSyncConfig() {
+  try {
+    const cfg = JSON.parse(localStorage.getItem(SYNC_KEY));
+    return cfg && cfg.token && cfg.repo && cfg.path ? cfg : null;
+  } catch {
+    return null;
+  }
+}
+
+function setSyncConfig(cfg) {
+  if (cfg) localStorage.setItem(SYNC_KEY, JSON.stringify(cfg));
+  else localStorage.removeItem(SYNC_KEY);
+  updateSyncIndicator();
+}
+
+// --- merge ---
+
+function mergeTombstones(a = {}, b = {}) {
+  const out = { ...a };
+  for (const [id, ts] of Object.entries(b)) {
+    if (!(out[id] >= ts)) out[id] = ts;
+  }
+  return out;
+}
+
+function mergeRecords(localArr, remoteArr, tombstones) {
+  const byId = new Map();
+  for (const r of [...remoteArr, ...localArr]) {
+    const prev = byId.get(r.id);
+    if (!prev || (r.updated || r.created || 0) > (prev.updated || prev.created || 0)) {
+      byId.set(r.id, r);
+    }
+  }
+  const out = [];
+  for (const r of byId.values()) {
+    const ts = tombstones[r.id];
+    if (ts && ts >= (r.updated || r.created || 0)) continue; // stays deleted
+    if (ts) delete tombstones[r.id]; // edited after deletion elsewhere → record wins
+    out.push(r);
+  }
+  return out;
+}
+
+function mergeStates(local, remote) {
+  const deleted = {
+    aircraft: mergeTombstones(local.deleted.aircraft, remote.deleted.aircraft),
+    flights: mergeTombstones(local.deleted.flights, remote.deleted.flights),
+  };
+  return {
+    version: 2,
+    aircraft: mergeRecords(local.aircraft, remote.aircraft, deleted.aircraft),
+    flights: mergeRecords(local.flights, remote.flights, deleted.flights),
+    customTypes: [...new Set([...remote.customTypes, ...local.customTypes])],
+    deleted,
+  };
+}
+
+// --- GitHub contents API ---
+
+function b64encodeUtf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+function b64decodeUtf8(b64) {
+  const bin = atob(b64.replace(/\s/g, ""));
+  const bytes = Uint8Array.from(bin, c => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+async function ghRequest(cfg, method, body) {
+  const url = `${API_BASE}/repos/${cfg.repo}/contents/${encodeURIComponent(cfg.path).replace(/%2F/g, "/")}`;
+  const resp = await fetch(url, {
+    method,
+    headers: {
+      "Authorization": `Bearer ${cfg.token}`,
+      "Accept": "application/vnd.github+json",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return resp;
+}
+
+async function fetchRemote(cfg) {
+  const resp = await ghRequest(cfg, "GET");
+  if (resp.status === 404) return { sha: null, data: null }; // file (or repo) doesn't exist yet
+  if (resp.status === 401 || resp.status === 403) throw new Error("GitHub rejected the token. Check that it has Contents read/write access to " + cfg.repo + ".");
+  if (!resp.ok) throw new Error("GitHub error " + resp.status + " while reading.");
+  const json = await resp.json();
+  const data = normalizeState(JSON.parse(b64decodeUtf8(json.content)));
+  if (!data) throw new Error("The sync file exists but isn't a PilotLog logbook.");
+  return { sha: json.sha, data };
+}
+
+async function pushRemote(cfg, sha, data) {
+  const body = {
+    message: "PilotLog sync",
+    content: b64encodeUtf8(JSON.stringify(data)),
+  };
+  if (sha) body.sha = sha;
+  const resp = await ghRequest(cfg, "PUT", body);
+  if (resp.status === 404) throw new Error("Repository " + cfg.repo + " not found. Create it (private) and check the token's repository access.");
+  if (resp.status === 401 || resp.status === 403) throw new Error("GitHub rejected the token. Check that it has Contents read/write access to " + cfg.repo + ".");
+  if (resp.status === 409 || resp.status === 422) return false; // raced another device — caller re-merges
+  if (!resp.ok) throw new Error("GitHub error " + resp.status + " while writing.");
+  return true;
+}
+
+// --- sync driver ---
+
+async function syncNow({ silent = false } = {}) {
+  const cfg = getSyncConfig();
+  if (!cfg) {
+    if (!silent) openSyncDialog();
+    return false;
+  }
+  if (syncing) return false;
+  syncing = true;
+  updateSyncIndicator("busy");
+  try {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { sha, data: remote } = await fetchRemote(cfg);
+      const merged = remote ? mergeStates(state, remote) : normalizeState(state);
+      const mergedJson = JSON.stringify(merged);
+
+      if (mergedJson !== JSON.stringify(state)) {
+        state = merged;
+        localStorage.setItem(STORAGE_KEY, mergedJson); // save without re-triggering push
+        render();
+      }
+      if (remote && JSON.stringify(remote) === mergedJson) {
+        finishSync(cfg);
+        return true; // nothing new to write
+      }
+      if (await pushRemote(cfg, sha, merged)) {
+        finishSync(cfg);
+        return true;
+      }
+      // write conflict: loop to re-fetch and re-merge
+    }
+    throw new Error("Couldn't sync after several attempts — try again.");
+  } catch (err) {
+    updateSyncIndicator("error");
+    setSyncStatusText("Sync failed: " + (navigator.onLine === false ? "you're offline." : err.message));
+    if (!silent) alert("Sync failed: " + (navigator.onLine === false ? "You appear to be offline." : err.message));
+    return false;
+  } finally {
+    syncing = false;
+  }
+}
+
+function finishSync(cfg) {
+  lastSyncAt = Date.now();
+  cfg.lastSync = lastSyncAt;
+  setSyncConfig(cfg);
+  updateSyncIndicator("ok");
+  setSyncStatusText("Last synced: " + new Date(lastSyncAt).toLocaleString());
+}
+
+function schedulePushSync() {
+  if (!getSyncConfig()) return;
+  clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => syncNow({ silent: true }), 1500);
+}
+
+// --- sync UI ---
+
+const syncDialog = $("#sync-dialog");
+const syncForm = $("#sync-form");
+
+function updateSyncIndicator(mode) {
+  const btn = $("#sync-btn");
+  const cfg = getSyncConfig();
+  btn.classList.remove("sync-off", "sync-ok", "sync-busy", "sync-error");
+  if (!cfg) {
+    btn.classList.add("sync-off");
+    btn.title = "Sync is off — tap to set up";
+  } else if (mode === "busy") {
+    btn.classList.add("sync-busy");
+    btn.title = "Syncing…";
+  } else if (mode === "error") {
+    btn.classList.add("sync-error");
+    btn.title = "Sync failed — tap to retry";
+  } else {
+    btn.classList.add("sync-ok");
+    btn.title = "Synced" + (cfg.lastSync ? " " + new Date(cfg.lastSync).toLocaleString() : "");
+  }
+}
+
+function setSyncStatusText(text) {
+  $("#sync-status").textContent = text;
+}
+
+function openSyncDialog() {
+  const cfg = getSyncConfig();
+  syncForm.elements.token.value = cfg?.token || "";
+  syncForm.elements.repo.value = cfg?.repo || "";
+  syncForm.elements.path.value = cfg?.path || "pilotlog.json";
+  $("#sync-disconnect").hidden = !cfg;
+  syncForm.querySelector(".form-error").hidden = true;
+  setSyncStatusText(cfg?.lastSync ? "Last synced: " + new Date(cfg.lastSync).toLocaleString() : "");
+  syncDialog.showModal();
+}
+
+syncForm.addEventListener("submit", async e => {
+  e.preventDefault();
+  const errBox = syncForm.querySelector(".form-error");
+  const token = syncForm.elements.token.value.trim();
+  const repo = syncForm.elements.repo.value.trim().replace(/^https:\/\/github\.com\//, "").replace(/\/+$/, "");
+  const path = syncForm.elements.path.value.trim() || "pilotlog.json";
+
+  if (!token || !/^[^/\s]+\/[^/\s]+$/.test(repo)) {
+    errBox.textContent = "Enter a token and a repository in owner/name form (e.g. yourname/pilotlog-data).";
+    errBox.hidden = false;
+    return;
+  }
+  setSyncConfig({ token, repo, path });
+  setSyncStatusText("Connecting…");
+  errBox.hidden = true;
+  const ok = await syncNow({ silent: true });
+  if (ok) {
+    syncDialog.close();
+  } else {
+    errBox.textContent = $("#sync-status").textContent;
+    errBox.hidden = false;
+  }
+});
+
+$("#sync-disconnect").addEventListener("click", () => {
+  if (!confirm("Turn off sync on this device? Your data stays on this device and in the repository; the token is removed from this device.")) return;
+  setSyncConfig(null);
+  setSyncStatusText("");
+  syncDialog.close();
+});
+
+$("#sync-btn").addEventListener("click", () => {
+  if (getSyncConfig()) syncNow();
+  else openSyncDialog();
+});
+$("#sync-now").addEventListener("click", () => {
+  menuDropdown.hidden = true;
+  syncNow();
+});
+$("#sync-settings").addEventListener("click", () => {
+  menuDropdown.hidden = true;
+  openSyncDialog();
+});
+
+// pull fresh data when the app comes back to the foreground
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && getSyncConfig() && Date.now() - lastSyncAt > 60_000) {
+    syncNow({ silent: true });
+  }
 });
 
 // ---------- service worker ----------
@@ -721,3 +1022,5 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 // ---------- go ----------
 
 render();
+updateSyncIndicator();
+if (getSyncConfig()) syncNow({ silent: true });
