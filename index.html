@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f4c81">
+  <meta name="description" content="Personal pilot logbook — flights, aircraft, and totals.">
+  <title>PilotLog</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M21 16v-2l-8-5V3.5C13 2.67 12.33 2 11.5 2S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5L21 16z"/>
+      </svg>
+      <h1>PilotLog</h1>
+    </div>
+    <div class="header-menu">
+      <button id="menu-btn" class="icon-btn" aria-haspopup="true" aria-expanded="false" aria-label="Menu">&#8942;</button>
+      <div id="menu-dropdown" class="dropdown" hidden>
+        <button id="export-json">Export backup (JSON)</button>
+        <button id="export-csv">Export flights (CSV)</button>
+        <button id="import-json">Import backup&hellip;</button>
+        <hr>
+        <button id="erase-all" class="danger">Erase all data&hellip;</button>
+      </div>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" role="tab" aria-selected="true" data-view="log">Logbook</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="aircraft">Aircraft</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="totals">Totals</button>
+  </nav>
+
+  <main>
+    <!-- ============ LOGBOOK ============ -->
+    <section id="view-log" class="view">
+      <div class="filters">
+        <select id="filter-year" aria-label="Filter by year"></select>
+        <select id="filter-aircraft" aria-label="Filter by aircraft"></select>
+        <span id="log-count" class="filter-count"></span>
+      </div>
+      <div id="flight-list" class="card-list"></div>
+      <p id="log-empty" class="empty" hidden>
+        No flights logged yet. Add an aircraft first, then tap <strong>+</strong> to log a flight.
+      </p>
+    </section>
+
+    <!-- ============ AIRCRAFT ============ -->
+    <section id="view-aircraft" class="view" hidden>
+      <div id="aircraft-list" class="card-list"></div>
+      <p id="aircraft-empty" class="empty" hidden>
+        No aircraft yet. Tap <strong>+</strong> to add one.
+      </p>
+    </section>
+
+    <!-- ============ TOTALS ============ -->
+    <section id="view-totals" class="view" hidden>
+      <div class="filters">
+        <select id="totals-period" aria-label="Totals period"></select>
+      </div>
+
+      <div class="stat-row" id="stat-row"></div>
+
+      <h2>By category</h2>
+      <div class="table-wrap">
+        <table id="table-category">
+          <thead><tr><th>Category</th><th class="num">Hours</th><th class="num">Flights</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2>By aircraft</h2>
+      <div class="table-wrap">
+        <table id="table-aircraft">
+          <thead><tr><th>Aircraft</th><th class="num">Hours</th><th class="num">Flights</th><th class="num">T/O</th><th class="num">Ldg</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2>By aircraft type</h2>
+      <div class="table-wrap">
+        <table id="table-type">
+          <thead><tr><th>Type</th><th class="num">Hours</th><th class="num">Flights</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <h2>Year by year <span class="sub">(running total)</span></h2>
+      <div class="table-wrap">
+        <table id="table-years">
+          <thead>
+            <tr>
+              <th>Year</th><th class="num">Flights</th><th class="num">Hours</th>
+              <th class="num">Solo</th><th class="num">XC</th><th class="num">Day</th><th class="num">Night</th>
+              <th class="num">PIC</th><th class="num">Dual</th><th class="num">IFR</th><th class="num">VFR</th>
+              <th class="num">T/O</th><th class="num">Ldg</th><th class="num">Cumul. hrs</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="totals-empty" class="empty" hidden>Log some flights to see totals.</p>
+    </section>
+  </main>
+
+  <button id="fab" class="fab" aria-label="Add">+</button>
+
+  <!-- ============ FLIGHT DIALOG ============ -->
+  <dialog id="flight-dialog">
+    <form id="flight-form" method="dialog" novalidate>
+      <h2 id="flight-dialog-title">New flight</h2>
+
+      <div class="form-grid">
+        <label>Date
+          <input type="date" name="date" required>
+        </label>
+        <label>Aircraft
+          <select name="aircraftId" required></select>
+        </label>
+        <label>From
+          <input type="text" name="from" placeholder="CYYZ" autocapitalize="characters" required>
+        </label>
+        <label>To
+          <input type="text" name="to" placeholder="CYOW" autocapitalize="characters" required>
+        </label>
+        <label>Hours
+          <input type="number" name="hours" min="0" step="0.1" inputmode="decimal" placeholder="1.5" required>
+        </label>
+        <label>Takeoffs
+          <input type="number" name="takeoffs" min="0" step="1" inputmode="numeric" value="1" required>
+        </label>
+        <label>Landings
+          <input type="number" name="landings" min="0" step="1" inputmode="numeric" value="1" required>
+        </label>
+      </div>
+
+      <fieldset class="check-grid" id="flight-flags">
+        <legend>Flight conditions</legend>
+        <!-- checkboxes injected by JS -->
+      </fieldset>
+
+      <label class="full">Remarks
+        <input type="text" name="remarks" placeholder="Optional notes">
+      </label>
+
+      <p class="form-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save flight</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ AIRCRAFT DIALOG ============ -->
+  <dialog id="aircraft-dialog">
+    <form id="aircraft-form" method="dialog" novalidate>
+      <h2 id="aircraft-dialog-title">New aircraft</h2>
+
+      <div class="form-grid">
+        <label>Registration
+          <input type="text" name="reg" placeholder="C-GABC" autocapitalize="characters" required>
+        </label>
+        <label>Make
+          <input type="text" name="make" placeholder="Cessna" required>
+        </label>
+        <label>Model
+          <input type="text" name="model" placeholder="182" required>
+        </label>
+      </div>
+
+      <fieldset class="check-grid" id="aircraft-types">
+        <legend>Type &amp; equipment</legend>
+        <!-- checkboxes injected by JS -->
+      </fieldset>
+
+      <div class="add-type-row">
+        <input type="text" id="new-type" placeholder="Add a custom type&hellip;">
+        <button type="button" id="add-type-btn" class="btn ghost">Add</button>
+      </div>
+
+      <p class="form-error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save aircraft</button>
+      </div>
+    </form>
+  </dialog>
+
+  <input type="file" id="import-file" accept="application/json,.json" hidden>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
