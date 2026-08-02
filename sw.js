@@ -1,10 +1,11 @@
 /* PilotLog service worker — offline-first app shell */
-const CACHE = "pilotlog-v3";
+const CACHE = "pilotlog-v4";
 const ASSETS = [
   "./",
   "./index.html",
   "./css/style.css",
   "./js/app.js",
+  "./js/cloud.js",
   "./manifest.webmanifest",
   "./icons/icon.svg",
   "./icons/icon-192.png",

@@ -199,45 +199,21 @@
 
   <!-- ============ SYNC DIALOG ============ -->
   <dialog id="sync-dialog">
-    <form id="sync-form" method="dialog" novalidate>
+    <form method="dialog" novalidate>
       <h2>Sync across devices</h2>
       <p class="hint" style="margin-top:-8px">
-        Your logbook is stored as a JSON file in a <strong>private GitHub repository</strong>
-        on your account and kept in sync on every device where you set this up.
-        Changes merge per entry, so you can log flights from any device.
+        Sign in with your Google account and your logbook is stored securely in the cloud
+        and kept up to date on every device where you sign in. Changes merge per entry,
+        so you can log flights from any device &mdash; even offline; they sync when you reconnect.
       </p>
 
-      <details class="sync-help">
-        <summary>One-time setup (about 2 minutes)</summary>
-        <ol>
-          <li>Create a <strong>private</strong> repository on GitHub, e.g.
-            <code>pilotlog-data</code> (check &ldquo;Add a README&rdquo; so the repo isn&rsquo;t empty).</li>
-          <li>Create a token the app can use: GitHub &rarr; Settings &rarr; Developer settings &rarr;
-            <strong>Fine-grained tokens</strong> &rarr; Generate new token.
-            Under <em>Repository access</em> choose <em>Only select repositories</em> and pick your
-            data repo. Under <em>Permissions &rarr; Repository &rarr; Contents</em> choose
-            <strong>Read and write</strong>. Generate and copy the token.</li>
-          <li>Paste the token and repository below on each device.</li>
-        </ol>
-        <p>The token is stored only on this device and is never included in backups or exports.</p>
-      </details>
-
-      <label class="full">GitHub token
-        <input type="password" name="token" placeholder="github_pat_&hellip;" autocomplete="off">
-      </label>
-      <label class="full">Repository (owner/name)
-        <input type="text" name="repo" placeholder="yourname/pilotlog-data" autocomplete="off">
-      </label>
-      <label class="full">File path in repository
-        <input type="text" name="path" value="pilotlog.json">
-      </label>
-
+      <p id="sync-account" class="sync-account"></p>
       <p id="sync-status" class="hint"></p>
-      <p class="form-error" hidden></p>
+
       <div class="dialog-actions">
-        <button type="button" id="sync-disconnect" class="btn ghost danger-text" hidden>Turn off sync</button>
-        <button type="button" class="btn ghost" data-close>Cancel</button>
-        <button type="submit" class="btn primary">Save &amp; sync</button>
+        <button type="button" id="sync-signout" class="btn ghost danger-text" hidden>Sign out</button>
+        <button type="button" class="btn ghost" data-close>Close</button>
+        <button type="button" id="sync-signin" class="btn primary">Sign in with Google</button>
       </div>
     </form>
   </dialog>
@@ -245,5 +221,6 @@
   <input type="file" id="import-file" accept="application/json,.json" hidden>
 
   <script src="js/app.js"></script>
+  <script type="module" src="js/cloud.js"></script>
 </body>
 </html>

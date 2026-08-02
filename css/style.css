@@ -138,7 +138,15 @@ body {
 
 .btn.danger-text { color: var(--danger); margin-right: auto; }
 
-#sync-dialog label.full { margin-top: 10px; }
+.sync-account {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  font-size: 0.9rem;
+  color: var(--ink);
+  line-height: 1.5;
+}
 .dropdown hr { border: none; border-top: 1px solid var(--line); margin: 6px 0; }
 
 /* ---------- tabs ---------- */

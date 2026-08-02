@@ -57,30 +57,46 @@ It's a static site — no build step, no server-side code.
 
 ## Sync across devices
 
-Turn on sync (the **⟳ button** or **⋮ menu → Sync settings**) to keep every
-device up to date. The logbook is mirrored to a JSON file in a **private GitHub
-repository** on your own account — no third-party service involved.
-
-One-time setup:
-
-1. Create a **private** repository, e.g. `pilotlog-data` (add a README so it
-   isn't empty).
-2. Create a **fine-grained personal access token** (GitHub → Settings →
-   Developer settings → Fine-grained tokens) with *Repository access* limited
-   to that one repo and *Contents: Read and write* permission.
-3. In the app on each device, open Sync settings, paste the token, and enter
-   the repository as `owner/name`.
+Tap the **⟳ button** and **sign in with Google** — that's the whole per-device
+setup. The logbook is stored in Cloud Firestore (your own Firebase project)
+and pushed to every signed-in device in real time.
 
 How it behaves:
 
-- The app syncs on launch, shortly after every change, when it returns to the
-  foreground, and on demand via **⋮ → Sync now**.
+- Changes appear on other devices within seconds while they're open, and on
+  launch otherwise.
 - Devices **merge by entry** (newest edit wins per flight/aircraft), and
   deletions carry across via tombstones — so logging on your phone and your
   desktop in the same afternoon combines cleanly.
 - Offline is fine: changes stay local and sync next time you're connected.
-- The token is stored only in that device's browser storage; it is **never**
-  part of JSON backups or CSV exports.
+- Only your Google account can read the data, enforced by Firestore security
+  rules (below).
+
+### Firebase project setup (owner, one time)
+
+1. Create a project at https://console.firebase.google.com, add a **Web app**,
+   and put its config in `js/cloud-src.mjs` (the config is not a secret).
+2. Enable **Authentication → Sign-in method → Google**, and add your hosting
+   domain (e.g. `yourname.github.io`) under Authentication → Settings →
+   **Authorized domains**.
+3. Create a **Firestore database** (production mode) and publish these rules
+   (Firestore → Rules):
+
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{userId}/{document=**} {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+     }
+   }
+   ```
+
+4. Rebuild the bundled sync module after any change to `js/cloud-src.mjs`:
+   `npm install firebase esbuild && node tools/build-cloud.mjs` (the Firebase
+   SDK is bundled into `js/cloud.js` so the app has no runtime CDN dependency
+   and works offline).
 
 ## Project layout
 
