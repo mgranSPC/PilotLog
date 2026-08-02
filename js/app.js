@@ -147,6 +147,24 @@ function sortedFlights() {
     y.date.localeCompare(x.date) || (y.created || 0) - (x.created || 0));
 }
 
+// Aircraft ordered by most recent flight first; never-flown aircraft last
+// (newest added first), so the picker leads with what you actually fly.
+function sortedAircraft({ includeArchived = false } = {}) {
+  const lastFlown = {};
+  for (const f of state.flights) {
+    if (!lastFlown[f.aircraftId] || f.date > lastFlown[f.aircraftId]) {
+      lastFlown[f.aircraftId] = f.date;
+    }
+  }
+  return state.aircraft
+    .filter(a => includeArchived || !a.archived)
+    .sort((x, y) => {
+      const lx = lastFlown[x.id] || "", ly = lastFlown[y.id] || "";
+      if (lx !== ly) return ly.localeCompare(lx);
+      return (y.updated || 0) - (x.updated || 0) || x.reg.localeCompare(y.reg);
+    });
+}
+
 // ---------- tabs / views ----------
 
 document.querySelectorAll(".tab").forEach(tab => {
@@ -189,7 +207,8 @@ function renderLog() {
 
   const acVal = acSel.value;
   acSel.innerHTML = `<option value="">All aircraft</option>` +
-    state.aircraft.map(a => `<option value="${esc(a.id)}">${esc(a.reg)}</option>`).join("");
+    sortedAircraft({ includeArchived: true }).map(a =>
+      `<option value="${esc(a.id)}">${esc(a.reg)}${a.archived ? " (archived)" : ""}</option>`).join("");
   if (state.aircraft.some(a => a.id === acVal)) acSel.value = acVal;
 
   let flights = sortedFlights();
@@ -256,23 +275,33 @@ $("#filter-aircraft").addEventListener("change", renderLog);
 function renderAircraft() {
   $("#aircraft-empty").hidden = state.aircraft.length > 0;
 
-  $("#aircraft-list").innerHTML = state.aircraft.map(a => {
+  const card = a => {
     const flights = state.flights.filter(f => f.aircraftId === a.id);
     const hours = flights.reduce((s, f) => s + f.hours, 0);
     const chips = (a.types || []).map(t => `<span class="chip">${esc(t)}</span>`).join("");
     return `
-      <div class="card" data-id="${esc(a.id)}">
+      <div class="card${a.archived ? " archived" : ""}" data-id="${esc(a.id)}">
         <div class="card-top">
           <span class="aircraft-name">${esc(a.reg)} &mdash; ${esc(a.make)} ${esc(a.model)}</span>
           <span class="aircraft-hours">${fmtHours(hours)} h &middot; ${flights.length} flight${flights.length === 1 ? "" : "s"}</span>
         </div>
         ${chips ? `<div class="chips">${chips}</div>` : ""}
         <div class="card-actions">
+          <button data-action="toggle-archive">${a.archived ? "Unarchive" : "Archive"}</button>
           <button data-action="edit-aircraft">Edit</button>
           <button data-action="delete-aircraft" class="delete">Delete</button>
         </div>
       </div>`;
-  }).join("");
+  };
+
+  const active = sortedAircraft();
+  const archived = sortedAircraft({ includeArchived: true }).filter(a => a.archived);
+  $("#aircraft-list").innerHTML =
+    active.map(card).join("") +
+    (archived.length
+      ? `<h2 class="list-heading">Archived <span class="sub">(kept in totals, hidden when logging)</span></h2>` +
+        archived.map(card).join("")
+      : "");
 }
 
 $("#aircraft-list").addEventListener("click", e => {
@@ -280,6 +309,16 @@ $("#aircraft-list").addEventListener("click", e => {
   if (!btn) return;
   const id = btn.closest(".card").dataset.id;
   if (btn.dataset.action === "edit-aircraft") openAircraftDialog(id);
+  else if (btn.dataset.action === "toggle-archive") {
+    const a = aircraftById(id);
+    if (a) {
+      a.archived = !a.archived;
+      if (!a.archived) delete a.archived;
+      a.updated = Date.now();
+      saveState();
+      render();
+    }
+  }
   else if (btn.dataset.action === "delete-aircraft") {
     const a = aircraftById(id);
     const n = state.flights.filter(f => f.aircraftId === id).length;
@@ -461,24 +500,31 @@ $("#flight-cats").addEventListener("input", e => {
 });
 
 function openFlightDialog(flightId = null) {
-  if (!state.aircraft.length) {
-    alert("Add an aircraft first (Aircraft tab).");
+  editingFlightId = flightId;
+  const f = flightId ? state.flights.find(x => x.id === flightId) : null;
+
+  let choices = sortedAircraft(); // most recently flown first, archived hidden
+  // Editing a flight on an archived aircraft: keep it selectable for this flight.
+  const own = f ? aircraftById(f.aircraftId) : null;
+  if (own && !choices.includes(own)) choices = [own, ...choices];
+
+  if (!choices.length) {
+    alert(state.aircraft.length
+      ? "All your aircraft are archived. Unarchive one or add a new aircraft first (Aircraft tab)."
+      : "Add an aircraft first (Aircraft tab).");
     switchView("aircraft");
     return;
   }
-  editingFlightId = flightId;
-  const f = flightId ? state.flights.find(x => x.id === flightId) : null;
 
   $("#flight-dialog-title").textContent = f ? "Edit flight" : "New flight";
   flightForm.querySelector(".form-error").hidden = true;
 
   const acSel = flightForm.elements.aircraftId;
-  acSel.innerHTML = state.aircraft
-    .map(a => `<option value="${esc(a.id)}">${esc(aircraftLabel(a))}</option>`).join("");
+  acSel.innerHTML = choices
+    .map(a => `<option value="${esc(a.id)}">${esc(aircraftLabel(a))}${a.archived ? " (archived)" : ""}</option>`).join("");
 
-  const last = sortedFlights()[0];
   flightForm.elements.date.value = f ? f.date : new Date().toISOString().slice(0, 10);
-  acSel.value = f ? f.aircraftId : (last && aircraftById(last.aircraftId) ? last.aircraftId : state.aircraft[0].id);
+  acSel.value = f ? f.aircraftId : choices[0].id;
   flightForm.elements.from.value = f ? f.from : "";
   flightForm.elements.to.value = f ? f.to : "";
   flightForm.elements.hours.value = f ? f.hours : "";
@@ -616,6 +662,7 @@ aircraftForm.addEventListener("submit", e => {
 
   const types = [...aircraftForm.querySelectorAll('input[name="type"]:checked')].map(c => c.value);
   const aircraft = { id: editingAircraftId || uid(), reg, make, model, types, updated: Date.now() };
+  if (editingAircraftId && aircraftById(editingAircraftId)?.archived) aircraft.archived = true;
 
   if (editingAircraftId) {
     state.aircraft = state.aircraft.map(x => (x.id === editingAircraftId ? aircraft : x));

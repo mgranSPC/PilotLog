@@ -291,6 +291,7 @@ main {
 }
 
 .aircraft-name { font-weight: 600; font-size: 1.02rem; }
+.card.archived { opacity: 0.62; }
 .aircraft-hours { color: var(--ink-2); font-size: 0.87rem; font-variant-numeric: tabular-nums; }
 
 /* ---------- stat tiles ---------- */
