@@ -34,3 +34,26 @@ jobs:
       - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # Also publish to Firebase Hosting (pilotlog-9c6e1.web.app) when the
+  # FIREBASE_SERVICE_ACCOUNT secret is configured. Same-origin auth there
+  # makes Google sign-in work on iOS/Safari.
+  firebase-hosting:
+    runs-on: ubuntu-latest
+    env:
+      HAS_SECRET: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
+    steps:
+      - name: Checkout
+        if: env.HAS_SECRET == 'true'
+        uses: actions/checkout@v4
+      - name: Deploy to Firebase Hosting
+        if: env.HAS_SECRET == 'true'
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: live
+          projectId: pilotlog-9c6e1
+      - name: Skipped (no FIREBASE_SERVICE_ACCOUNT secret)
+        if: env.HAS_SECRET != 'true'
+        run: echo "FIREBASE_SERVICE_ACCOUNT secret not set - skipping Firebase Hosting deploy."

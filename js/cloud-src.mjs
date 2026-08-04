@@ -15,9 +15,14 @@ import {
 } from "firebase/auth";
 import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
 
+// When the app is served from Firebase Hosting, use that same host as the
+// authDomain: the sign-in handshake is then same-origin, which is the only
+// flow Safari/iOS allows (its tracking prevention blocks the cross-site
+// handshake that the default firebaseapp.com authDomain requires).
+const HOSTING_DOMAINS = ["pilotlog-9c6e1.web.app", "pilotlog-9c6e1.firebaseapp.com"];
 const firebaseConfig = {
   apiKey: "AIzaSyD7_Fa-B8NA8GzC8mwDTae4YTk6-aoKZQg",
-  authDomain: "pilotlog-9c6e1.firebaseapp.com",
+  authDomain: HOSTING_DOMAINS.includes(location.host) ? location.host : "pilotlog-9c6e1.firebaseapp.com",
   projectId: "pilotlog-9c6e1",
   storageBucket: "pilotlog-9c6e1.firebasestorage.app",
   messagingSenderId: "361227333811",
@@ -115,6 +120,12 @@ async function pushNow() {
 
 async function signIn() {
   const provider = new GoogleAuthProvider();
+  // Same-origin authDomain (Firebase Hosting): full-page redirect is the
+  // reliable path on iOS/Safari, where popups are flaky in installed PWAs.
+  if (location.host === firebaseConfig.authDomain) {
+    try { await signInWithRedirect(auth, provider); } catch (err) { fail(err); }
+    return;
+  }
   try {
     await signInWithPopup(auth, provider);
   } catch (err) {
