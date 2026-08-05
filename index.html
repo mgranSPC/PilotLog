@@ -109,7 +109,8 @@
               <th>Year</th><th class="num">Flights</th><th class="num">Hours</th>
               <th class="num">Solo</th><th class="num">XC</th><th class="num">Day</th><th class="num">Night</th>
               <th class="num">PIC</th><th class="num">Dual</th><th class="num">IFR</th><th class="num">VFR</th>
-              <th class="num">T/O</th><th class="num">Ldg</th><th class="num">Cumul. hrs</th>
+              <th class="num">T/O</th><th class="num">Ldg</th>
+              <th class="num">Night T/O</th><th class="num">Night ldg</th><th class="num">Cumul. hrs</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -147,6 +148,12 @@
         </label>
         <label>Landings
           <input type="number" name="landings" min="0" step="1" inputmode="numeric" value="1" required>
+        </label>
+        <label>&hellip;of which at night: T/O
+          <input type="number" name="nightTakeoffs" min="0" step="1" inputmode="numeric" value="0">
+        </label>
+        <label>&hellip;night landings
+          <input type="number" name="nightLandings" min="0" step="1" inputmode="numeric" value="0">
         </label>
       </div>
 
