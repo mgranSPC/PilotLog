@@ -382,6 +382,28 @@ tr.total-row td { font-weight: 700; border-top: 2px solid var(--line); }
   .fab { background: var(--accent); color: #0d1520; }
 }
 
+/* ---------- update banner ---------- */
+
+.update-banner {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: var(--card);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+  padding: 12px 14px 12px 18px;
+  z-index: 40;
+  max-width: calc(100vw - 24px);
+}
+.update-banner[hidden] { display: none; }
+.update-banner .btn { padding: 8px 14px; white-space: nowrap; }
+
 /* ---------- dialogs & forms ---------- */
 
 dialog {

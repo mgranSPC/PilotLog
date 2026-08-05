@@ -1,5 +1,5 @@
 /* PilotLog service worker — offline-first app shell */
-const CACHE = "pilotlog-v9";
+const CACHE = "pilotlog-v10";
 const ASSETS = [
   "./",
   "./index.html",
@@ -14,7 +14,13 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // No skipWaiting here: the new version waits until the user taps the
+  // in-app "Update" banner (which posts SKIP_WAITING), then takes over.
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+});
+
+self.addEventListener("message", e => {
+  if (e.data === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("activate", e => {

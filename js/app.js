@@ -1002,8 +1002,44 @@ window.PilotLogCore = {
 // ---------- service worker ----------
 
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("sw.js").catch(() => { /* offline support unavailable */ });
+  window.addEventListener("load", async () => {
+    let reg;
+    try {
+      reg = await navigator.serviceWorker.register("sw.js");
+    } catch {
+      return; // offline support unavailable
+    }
+
+    const banner = $("#update-banner");
+    const showBannerIfWaiting = () => { if (reg.waiting) banner.hidden = false; };
+
+    showBannerIfWaiting();
+    reg.addEventListener("updatefound", () => {
+      const sw = reg.installing;
+      sw?.addEventListener("statechange", () => {
+        // "installed" with an existing controller = an update is parked
+        // and waiting (a first-ever install has no controller).
+        if (sw.state === "installed" && navigator.serviceWorker.controller) {
+          banner.hidden = false;
+        }
+      });
+    });
+
+    // Look for updates when the app comes back to the foreground (and
+    // hourly while it stays open). Browsers also check on every launch.
+    const check = () => reg.update().catch(() => {});
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
+    setInterval(check, 60 * 60 * 1000);
+
+    $("#update-reload").addEventListener("click", () => {
+      reg.waiting?.postMessage("SKIP_WAITING");
+    });
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
   });
 }
 
