@@ -1,5 +1,5 @@
 /* PilotLog service worker — offline-first app shell */
-const CACHE = "pilotlog-v6";
+const CACHE = "pilotlog-v7";
 const ASSETS = [
   "./",
   "./index.html",
@@ -27,17 +27,15 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
-  if (new URL(e.request.url).origin !== location.origin) return; // e.g. GitHub sync API
+  const url = new URL(e.request.url);
+  if (url.origin !== location.origin) return;   // e.g. Firebase/Google APIs
+  if (url.pathname.startsWith("/__/")) return;  // Firebase reserved URLs (sign-in handler) — never intercept or cache
   e.respondWith(
+    // Serve the precached app shell; anything else goes straight to the
+    // network (no runtime caching — a cached auth page breaks sign-in).
     caches.match(e.request, { ignoreSearch: true }).then(cached =>
       cached ||
-      fetch(e.request).then(resp => {
-        if (resp.ok && new URL(e.request.url).origin === location.origin) {
-          const copy = resp.clone();
-          caches.open(CACHE).then(c => c.put(e.request, copy));
-        }
-        return resp;
-      }).catch(() =>
+      fetch(e.request).catch(() =>
         e.request.mode === "navigate" ? caches.match("./index.html") : Response.error()
       )
     )
