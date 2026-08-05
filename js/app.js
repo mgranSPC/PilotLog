@@ -375,19 +375,69 @@ function computeTotals(flights) {
   return t;
 }
 
+// n months before today, as a local YYYY-MM-DD string (day clamped so
+// e.g. "6 months before Aug 31" doesn't spill into the next month).
+function monthsAgoISO(n) {
+  const now = new Date();
+  const day = now.getDate();
+  const d = new Date(now.getFullYear(), now.getMonth() - n, 1);
+  const lastDay = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+  d.setDate(Math.min(day, lastDay));
+  const pad = v => String(v).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function keepSelect(sel, optionsHtml) {
+  const prev = sel.value;
+  sel.innerHTML = optionsHtml;
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+
 function renderTotals() {
   const periodSel = $("#totals-period");
+  const catSel = $("#totals-cat");
+  const typeSel = $("#totals-type");
+  const fromInp = $("#totals-from");
+  const toInp = $("#totals-to");
+
   const years = [...new Set(state.flights.map(yearOf))].sort().reverse();
-  const prev = periodSel.value;
-  periodSel.innerHTML = `<option value="">All time</option>` +
-    years.map(y => `<option value="${y}">${y}</option>`).join("");
-  if (years.includes(prev)) periodSel.value = prev;
+  keepSelect(periodSel,
+    `<option value="">All time</option>` +
+    `<option value="6m">Last 6 months</option>` +
+    `<option value="12m">Last 12 months</option>` +
+    years.map(y => `<option value="${y}">${y}</option>`).join("") +
+    `<option value="custom">Custom range&hellip;</option>`);
+  keepSelect(catSel,
+    `<option value="">All categories</option>` +
+    FLAGS.map(fl => `<option value="${fl.key}">${fl.label}</option>`).join(""));
+  keepSelect(typeSel,
+    `<option value="">All aircraft types</option>` +
+    allTypes().map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join(""));
+
+  const custom = periodSel.value === "custom";
+  fromInp.hidden = toInp.hidden = $("#totals-range-sep").hidden = !custom;
+
+  let from = "", to = "";
+  if (periodSel.value === "6m") from = monthsAgoISO(6);
+  else if (periodSel.value === "12m") from = monthsAgoISO(12);
+  else if (custom) { from = fromInp.value || ""; to = toInp.value || ""; }
+  else if (periodSel.value) { from = periodSel.value + "-01-01"; to = periodSel.value + "-12-31"; }
+
+  const cat = catSel.value;
+  const type = typeSel.value;
+  const matchesKind = f =>
+    (!cat || f.hoursBy[cat] > 0) &&
+    (!type || (aircraftById(f.aircraftId)?.types || []).includes(type));
 
   const hasFlights = state.flights.length > 0;
   $("#totals-empty").hidden = hasFlights;
 
-  const period = periodSel.value;
-  const flights = period ? state.flights.filter(f => yearOf(f) === period) : state.flights;
+  const flights = state.flights.filter(f =>
+    (!from || f.date >= from) && (!to || f.date <= to) && matchesKind(f));
+  const filtered = periodSel.value || cat || type;
+  $("#totals-count").textContent = filtered
+    ? (flights.length === 1 ? "1 flight matches" : `${flights.length} flights match`)
+    : "";
   const t = computeTotals(flights);
 
   // --- stat tiles ---
@@ -427,9 +477,10 @@ function renderTotals() {
     <tr><td>${esc(type)}</td><td class="num">${fmtHours(c.hours)}</td><td class="num">${c.flights}</td></tr>`
   ).join("") || `<tr><td colspan="3">&mdash;</td></tr>`;
 
-  // --- year by year with running total (always all data, oldest first) ---
+  // --- year by year with running total (all years, oldest first; honours
+  // the category/type filters but not the period, since it spans all years) ---
   const byYear = {};
-  for (const f of state.flights) (byYear[yearOf(f)] ||= []).push(f);
+  for (const f of state.flights.filter(matchesKind)) (byYear[yearOf(f)] ||= []).push(f);
   const yearKeys = Object.keys(byYear).sort();
   let cumul = 0;
   $("#table-years tbody").innerHTML = yearKeys.map(y => {
@@ -455,7 +506,9 @@ function renderTotals() {
   }).join("") || `<tr><td colspan="14">&mdash;</td></tr>`;
 }
 
-$("#totals-period").addEventListener("change", renderTotals);
+for (const id of ["totals-period", "totals-cat", "totals-type", "totals-from", "totals-to"]) {
+  document.getElementById(id).addEventListener("change", renderTotals);
+}
 
 // ---------- flight dialog ----------
 

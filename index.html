@@ -67,6 +67,12 @@
     <section id="view-totals" class="view" hidden>
       <div class="filters">
         <select id="totals-period" aria-label="Totals period"></select>
+        <input type="date" id="totals-from" aria-label="From date" hidden>
+        <span id="totals-range-sep" hidden>&ndash;</span>
+        <input type="date" id="totals-to" aria-label="To date" hidden>
+        <select id="totals-cat" aria-label="Filter by flight category"></select>
+        <select id="totals-type" aria-label="Filter by aircraft type"></select>
+        <span id="totals-count" class="filter-count"></span>
       </div>
 
       <div class="stat-row" id="stat-row"></div>

@@ -209,7 +209,8 @@ main {
   margin-bottom: 14px;
   flex-wrap: wrap;
 }
-.filters select {
+.filters select,
+.filters input[type="date"] {
   font: inherit;
   padding: 8px 10px;
   border-radius: 8px;
@@ -217,6 +218,7 @@ main {
   background: var(--card);
   color: var(--ink);
 }
+.filters input[type="date"] { max-width: 160px; }
 .filter-count { color: var(--ink-3); font-size: 0.85rem; margin-left: auto; }
 
 /* ---------- cards ---------- */
