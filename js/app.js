@@ -35,7 +35,7 @@ let editingFlightId = null;
 let editingAircraftId = null;
 
 function emptyState() {
-  return { version: 2, aircraft: [], flights: [], customTypes: [], deleted: { aircraft: {}, flights: {} } };
+  return { version: 2, aircraft: [], flights: [], customTypes: [], deleted: { aircraft: {}, flights: {} }, pilot: null };
 }
 
 function loadState() {
@@ -63,7 +63,17 @@ function normalizeState(data) {
       aircraft: cleanTombstones(tombs.aircraft),
       flights: cleanTombstones(tombs.flights),
     },
+    pilot: sanitizePilot(data.pilot),
   };
+}
+
+function sanitizePilot(p) {
+  if (!p || typeof p !== "object") return null;
+  const d = v => (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "");
+  const medicalExpiry = d(p.medicalExpiry);
+  const licenceExpiry = d(p.licenceExpiry);
+  if (!medicalExpiry && !licenceExpiry) return null;
+  return { medicalExpiry, licenceExpiry, updated: typeof p.updated === "number" ? p.updated : 0 };
 }
 
 function cleanTombstones(obj) {
@@ -819,9 +829,171 @@ $("#export-csv").addEventListener("click", () => {
   menuDropdown.hidden = true;
 });
 
+$("#export-aircraft-csv").addEventListener("click", () => {
+  const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const header = ["Registration", "Make", "Model", "Types", "Archived"];
+  const rows = sortedAircraft({ includeArchived: true }).map(a =>
+    [a.reg, a.make, a.model, (a.types || []).join("; "), a.archived ? "Y" : ""].map(q).join(","));
+  download(`pilotlog-aircraft-${today()}.csv`, [header.map(q).join(","), ...rows].join("\n"), "text/csv");
+  menuDropdown.hidden = true;
+});
+
 $("#import-json").addEventListener("click", () => {
   menuDropdown.hidden = true;
   $("#import-file").click();
+});
+
+// ---------- CSV import ----------
+
+// Minimal RFC-4180 parser: quoted fields, embedded commas/quotes/newlines.
+function parseCSV(text) {
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else if (c === '"') {
+      inQuotes = true;
+    } else if (c === ",") {
+      row.push(field); field = "";
+    } else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      if (row.some(v => v !== "")) rows.push(row);
+      row = [];
+    } else {
+      field += c;
+    }
+  }
+  row.push(field);
+  if (row.some(v => v !== "")) rows.push(row);
+  return rows;
+}
+
+function addCustomTypes(types) {
+  for (const t of types) {
+    if (!allTypes().some(x => x.toLowerCase() === t.toLowerCase())) state.customTypes.push(t);
+  }
+}
+
+function findAircraftByReg(reg) {
+  return state.aircraft.find(a => a.reg.toUpperCase() === reg.toUpperCase()) || null;
+}
+
+// Import flights in the "Export flights (CSV)" format. Columns are matched
+// by header name, so column order and extra columns don't matter. Aircraft
+// are matched by registration and created on the fly when unknown.
+function importFlightsCSV(rows) {
+  const header = rows[0].map(h => h.trim());
+  const idx = name => header.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const get = (row, name) => { const i = idx(name); return i >= 0 ? String(row[i]).trim() : ""; };
+
+  const existing = new Set(state.flights.map(f =>
+    [f.date, aircraftById(f.aircraftId)?.reg.toUpperCase(), f.from, f.to, f.hours].join("|")));
+
+  const now = Date.now();
+  let added = 0, skipped = 0, invalid = 0, created = 0;
+  for (const row of rows.slice(1)) {
+    const date = get(row, "Date");
+    const reg = get(row, "Registration").toUpperCase();
+    const from = get(row, "From").toUpperCase();
+    const to = get(row, "To").toUpperCase();
+    const hours = Math.round(parseFloat(get(row, "Hours")) * 10) / 10;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !reg || !from || !to || !(hours > 0)) { invalid++; continue; }
+
+    if (existing.has([date, reg, from, to, hours].join("|"))) { skipped++; continue; }
+
+    let aircraft = findAircraftByReg(reg);
+    if (!aircraft) {
+      aircraft = { id: uid(), reg, make: get(row, "Make") || "Unknown", model: get(row, "Model") || reg,
+                   types: [], updated: now };
+      state.aircraft.push(aircraft);
+      created++;
+    }
+
+    const count = v => { const n = parseInt(v, 10); return Number.isFinite(n) && n > 0 ? n : 0; };
+    const takeoffs = count(get(row, "Takeoffs"));
+    const landings = count(get(row, "Landings"));
+    const hoursBy = {};
+    for (const fl of FLAGS) {
+      const v = parseFloat(get(row, FLAG_SHORT[fl.key]));
+      hoursBy[fl.key] = Number.isFinite(v) && v > 0 ? Math.min(Math.round(v * 10) / 10, hours) : 0;
+    }
+    state.flights.push({
+      id: uid(), created: now, updated: now,
+      date, aircraftId: aircraft.id, from, to, hours,
+      takeoffs, landings,
+      nightTakeoffs: Math.min(count(get(row, "Night Takeoffs")), takeoffs),
+      nightLandings: Math.min(count(get(row, "Night Landings")), landings),
+      hoursBy,
+      remarks: get(row, "Remarks"),
+    });
+    existing.add([date, reg, from, to, hours].join("|"));
+    added++;
+  }
+  return { kind: "flights", added, skipped, invalid, created };
+}
+
+// Import aircraft in the "Export aircraft (CSV)" format; existing
+// registrations are left untouched.
+function importAircraftCSV(rows) {
+  const header = rows[0].map(h => h.trim());
+  const idx = name => header.findIndex(h => h.toLowerCase() === name.toLowerCase());
+  const get = (row, name) => { const i = idx(name); return i >= 0 ? String(row[i]).trim() : ""; };
+
+  const now = Date.now();
+  let added = 0, skipped = 0, invalid = 0;
+  for (const row of rows.slice(1)) {
+    const reg = get(row, "Registration").toUpperCase();
+    if (!reg) { invalid++; continue; }
+    if (findAircraftByReg(reg)) { skipped++; continue; }
+    const types = get(row, "Types").split(";").map(t => t.trim()).filter(Boolean);
+    addCustomTypes(types);
+    const a = { id: uid(), reg, make: get(row, "Make") || "Unknown", model: get(row, "Model") || reg,
+                types, updated: now };
+    if (/^(y|yes|true|1)$/i.test(get(row, "Archived"))) a.archived = true;
+    state.aircraft.push(a);
+    added++;
+  }
+  return { kind: "aircraft", added, skipped, invalid, created: 0 };
+}
+
+$("#import-csv").addEventListener("click", () => {
+  menuDropdown.hidden = true;
+  $("#import-csv-file").click();
+});
+
+$("#import-csv-file").addEventListener("change", async e => {
+  const file = e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  try {
+    const rows = parseCSV(await file.text());
+    if (rows.length < 2) throw new Error("empty");
+    const header = rows[0].map(h => h.trim().toLowerCase());
+    let result;
+    if (header.includes("date") && header.includes("hours")) {
+      result = importFlightsCSV(rows);
+    } else if (header.includes("registration")) {
+      result = importAircraftCSV(rows);
+    } else {
+      throw new Error("format");
+    }
+    saveState();
+    render();
+    const parts = [`${result.added} ${result.kind} added`];
+    if (result.created) parts.push(`${result.created} aircraft created from registrations`);
+    if (result.skipped) parts.push(`${result.skipped} already present (skipped)`);
+    if (result.invalid) parts.push(`${result.invalid} rows couldn't be read`);
+    alert("Import finished: " + parts.join(", ") + ".");
+  } catch {
+    alert("That doesn't look like a PilotLog CSV. Use a file created by " +
+      "“Export flights (CSV)” or “Export aircraft (CSV)” — the column headers must match.");
+  }
 });
 
 $("#import-file").addEventListener("change", async e => {
@@ -905,6 +1077,9 @@ function mergeStates(local, remote) {
     flights: mergeRecords(local.flights, remote.flights, deleted.flights),
     customTypes: [...new Set([...remote.customTypes, ...local.customTypes])],
     deleted,
+    pilot: (local.pilot?.updated || 0) >= (remote.pilot?.updated || 0)
+      ? (local.pilot || remote.pilot || null)
+      : remote.pilot,
   };
 }
 
@@ -999,6 +1174,68 @@ window.PilotLogCore = {
   refreshSyncDialog,
 };
 
+// ---------- medical & licence reminders ----------
+
+const pilotDialog = $("#pilot-dialog");
+const pilotForm = $("#pilot-form");
+
+$("#pilot-profile").addEventListener("click", () => {
+  menuDropdown.hidden = true;
+  pilotForm.elements.medicalExpiry.value = state.pilot?.medicalExpiry || "";
+  pilotForm.elements.licenceExpiry.value = state.pilot?.licenceExpiry || "";
+  pilotDialog.showModal();
+});
+
+pilotForm.addEventListener("submit", e => {
+  e.preventDefault();
+  state.pilot = sanitizePilot({
+    medicalExpiry: pilotForm.elements.medicalExpiry.value,
+    licenceExpiry: pilotForm.elements.licenceExpiry.value,
+    updated: Date.now(),
+  });
+  saveState();
+  pilotDialog.close();
+  showExpiryNotice(); // immediate feedback with the fresh dates
+});
+
+function daysUntil(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const target = new Date(y, m - 1, d);
+  const now = new Date();
+  const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - todayMid) / 86400000);
+}
+
+let noticeTimer = null;
+function showExpiryNotice() {
+  const p = state.pilot;
+  if (!p) return;
+  const parts = [];
+  let urgent = false;
+  const add = (label, iso) => {
+    if (!iso) return;
+    const d = daysUntil(iso);
+    if (d < 0) { parts.push(`${label} EXPIRED ${-d} day${d === -1 ? "" : "s"} ago`); urgent = true; }
+    else if (d === 0) { parts.push(`${label} expires TODAY`); urgent = true; }
+    else { parts.push(`${label}: ${d} day${d === 1 ? "" : "s"} left`); if (d <= 30) urgent = true; }
+  };
+  add("Medical", p.medicalExpiry);
+  add("Licence renewal", p.licenceExpiry);
+  if (!parts.length) return;
+
+  const banner = $("#notice-banner");
+  $("#notice-text").textContent = parts.join(" · ");
+  banner.classList.toggle("urgent", urgent);
+  banner.hidden = false;
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { banner.hidden = true; }, 12000);
+}
+
+$("#notice-close").addEventListener("click", () => {
+  clearTimeout(noticeTimer);
+  $("#notice-banner").hidden = true;
+});
+
 // ---------- service worker ----------
 
 if ("serviceWorker" in navigator && location.protocol !== "file:") {
@@ -1047,3 +1284,4 @@ if ("serviceWorker" in navigator && location.protocol !== "file:") {
 
 render();
 updateSyncIndicator();
+showExpiryNotice();

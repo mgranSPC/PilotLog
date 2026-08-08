@@ -53,7 +53,15 @@ It's a static site — no build step, no server-side code.
   nothing is sent anywhere.
 - Use the **⋮ menu → Export backup (JSON)** for backups, and **Import backup**
   to restore one (import replaces the data on that device).
-- **Export flights (CSV)** produces a spreadsheet-friendly copy of the logbook.
+- **Export flights (CSV)** and **Export aircraft (CSV)** produce
+  spreadsheet-friendly copies; **Import from CSV** reads the same formats
+  back (columns matched by header name). Flights already present are
+  skipped, and unknown registrations in a flights file create the aircraft
+  automatically.
+- **Medical & licence** (⋮ menu) stores your medical expiry and licence
+  renewal dates; a brief pop-up on launch shows the days remaining,
+  highlighted when 30 days or fewer (or overdue). The dates sync across
+  devices like everything else.
 
 ## Sync across devices
 

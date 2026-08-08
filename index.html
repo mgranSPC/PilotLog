@@ -25,10 +25,13 @@
       <div id="menu-dropdown" class="dropdown" hidden>
         <button id="sync-now">Sync now</button>
         <button id="sync-settings">Sync settings&hellip;</button>
+        <button id="pilot-profile">Medical &amp; licence&hellip;</button>
         <hr>
         <button id="export-json">Export backup (JSON)</button>
         <button id="export-csv">Export flights (CSV)</button>
+        <button id="export-aircraft-csv">Export aircraft (CSV)</button>
         <button id="import-json">Import backup&hellip;</button>
+        <button id="import-csv">Import from CSV&hellip;</button>
         <hr>
         <button id="erase-all" class="danger">Erase all data&hellip;</button>
       </div>
@@ -236,7 +239,36 @@
     </form>
   </dialog>
 
+  <!-- ============ MEDICAL & LICENCE DIALOG ============ -->
+  <dialog id="pilot-dialog">
+    <form id="pilot-form" method="dialog" novalidate>
+      <h2>Medical &amp; licence</h2>
+      <p class="hint" style="margin-top:-8px">
+        Set your expiry dates and PilotLog reminds you how many days remain
+        each time you open the app. Leave a date blank to skip that reminder.
+      </p>
+      <div class="form-grid">
+        <label>Medical expires
+          <input type="date" name="medicalExpiry">
+        </label>
+        <label>Licence renewal due
+          <input type="date" name="licenceExpiry">
+        </label>
+      </div>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="notice-banner" class="update-banner notice-banner" hidden>
+    <span id="notice-text"></span>
+    <button id="notice-close" class="icon-btn" aria-label="Dismiss">&times;</button>
+  </div>
+
   <input type="file" id="import-file" accept="application/json,.json" hidden>
+  <input type="file" id="import-csv-file" accept="text/csv,.csv" hidden>
 
   <script src="js/app.js"></script>
   <script type="module" src="js/cloud.js"></script>
