@@ -1,5 +1,5 @@
 /* PilotLog service worker — offline-first app shell */
-const CACHE = "pilotlog-v11";
+const CACHE = "pilotlog-v12";
 const ASSETS = [
   "./",
   "./index.html",

@@ -112,8 +112,11 @@
               <th>Year</th><th class="num">Flights</th><th class="num">Hours</th>
               <th class="num">Solo</th><th class="num">XC</th><th class="num">Day</th><th class="num">Night</th>
               <th class="num">PIC</th><th class="num">Dual</th><th class="num">IFR</th><th class="num">VFR</th>
+              <th class="num">IMC</th>
               <th class="num">T/O</th><th class="num">Ldg</th>
-              <th class="num">Night T/O</th><th class="num">Night ldg</th><th class="num">Cumul. hrs</th>
+              <th class="num">Night T/O</th><th class="num">Night ldg</th>
+              <th class="num">Water T/O</th><th class="num">Water ldg</th>
+              <th class="num">IA</th><th class="num">Cumul. hrs</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -162,6 +165,15 @@
         </label>
         <label>&hellip;night landings
           <input type="number" name="nightLandings" min="0" step="1" inputmode="numeric" value="0">
+        </label>
+        <label>&hellip;of which on water: T/O
+          <input type="number" name="waterTakeoffs" min="0" step="1" inputmode="numeric" value="0">
+        </label>
+        <label>&hellip;water landings
+          <input type="number" name="waterLandings" min="0" step="1" inputmode="numeric" value="0">
+        </label>
+        <label>Instrument approaches
+          <input type="number" name="approaches" min="0" step="1" inputmode="numeric" value="0">
         </label>
       </div>
 

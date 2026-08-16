@@ -14,11 +14,12 @@ const FLAGS = [
   { key: "night",label: "Night" },
   { key: "vfr",  label: "VFR" },
   { key: "ifr",  label: "IFR" },
+  { key: "imc",  label: "IMC Conditions" },
 ];
 
 const FLAG_SHORT = {
   pic: "PIC", dual: "Dual", solo: "Solo", xc: "XC",
-  day: "Day", night: "Night", vfr: "VFR", ifr: "IFR",
+  day: "Day", night: "Night", vfr: "VFR", ifr: "IFR", imc: "IMC",
 };
 
 const BUILTIN_TYPES = [
@@ -100,7 +101,12 @@ function migrateFlight(f) {
   }
   const { flags, ...rest } = f;
   const count = v => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.round(Number(v)) : 0);
-  return { ...rest, hoursBy, nightTakeoffs: count(f.nightTakeoffs), nightLandings: count(f.nightLandings) };
+  return {
+    ...rest, hoursBy,
+    nightTakeoffs: count(f.nightTakeoffs), nightLandings: count(f.nightLandings),
+    waterTakeoffs: count(f.waterTakeoffs), waterLandings: count(f.waterLandings),
+    approaches: count(f.approaches),
+  };
 }
 
 function saveState() {
@@ -250,10 +256,12 @@ function renderLog() {
         <div class="card-sub">
           <span>${fmtDate(f.date)}</span>
           <span>${esc(a ? a.reg : "(deleted aircraft)")}</span>
-          <span>${f.takeoffs} T/O &middot; ${f.landings} Ldg${
-            f.nightTakeoffs || f.nightLandings
-              ? ` &middot; night ${f.nightTakeoffs} T/O &middot; ${f.nightLandings} Ldg`
-              : ""}</span>
+          <span>${[
+            `${f.takeoffs} T/O &middot; ${f.landings} Ldg`,
+            (f.nightTakeoffs || f.nightLandings) ? `${f.nightTakeoffs}/${f.nightLandings} night` : "",
+            (f.waterTakeoffs || f.waterLandings) ? `${f.waterTakeoffs}/${f.waterLandings} water` : "",
+            f.approaches ? `${f.approaches} IA` : "",
+          ].filter(Boolean).join(" &middot; ")}</span>
         </div>
         ${chips ? `<div class="chips">${chips}</div>` : ""}
         ${f.remarks ? `<div class="remarks">${esc(f.remarks)}</div>` : ""}
@@ -355,6 +363,7 @@ function computeTotals(flights) {
     flights: flights.length,
     hours: 0, takeoffs: 0, landings: 0,
     nightTakeoffs: 0, nightLandings: 0,
+    waterTakeoffs: 0, waterLandings: 0, approaches: 0,
     byFlag: {},   // key -> {hours, flights}
     byAircraft: {}, // id -> {hours, flights, takeoffs, landings}
     byType: {},   // type -> {hours, flights}
@@ -367,6 +376,9 @@ function computeTotals(flights) {
     t.landings += f.landings;
     t.nightTakeoffs += f.nightTakeoffs || 0;
     t.nightLandings += f.nightLandings || 0;
+    t.waterTakeoffs += f.waterTakeoffs || 0;
+    t.waterLandings += f.waterLandings || 0;
+    t.approaches += f.approaches || 0;
 
     for (const fl of FLAGS) {
       const h = f.hoursBy[fl.key];
@@ -465,6 +477,9 @@ function renderTotals() {
     [t.landings, "Landings"],
     [t.nightTakeoffs, "Night T/O"],
     [t.nightLandings, "Night ldgs"],
+    [t.waterTakeoffs, "Water T/O"],
+    [t.waterLandings, "Water ldgs"],
+    [t.approaches, "Instr. app."],
   ].map(([v, l]) => `
     <div class="stat">
       <div class="stat-value">${v}</div>
@@ -518,13 +533,17 @@ function renderTotals() {
         <td class="num">${fmtHours(yt.byFlag.dual.hours)}</td>
         <td class="num">${fmtHours(yt.byFlag.ifr.hours)}</td>
         <td class="num">${fmtHours(yt.byFlag.vfr.hours)}</td>
+        <td class="num">${fmtHours(yt.byFlag.imc.hours)}</td>
         <td class="num">${yt.takeoffs}</td>
         <td class="num">${yt.landings}</td>
         <td class="num">${yt.nightTakeoffs}</td>
         <td class="num">${yt.nightLandings}</td>
+        <td class="num">${yt.waterTakeoffs}</td>
+        <td class="num">${yt.waterLandings}</td>
+        <td class="num">${yt.approaches}</td>
         <td class="num">${fmtHours(cumul)}</td>
       </tr>`;
-  }).join("") || `<tr><td colspan="16">&mdash;</td></tr>`;
+  }).join("") || `<tr><td colspan="20">&mdash;</td></tr>`;
 }
 
 for (const id of ["totals-period", "totals-cat", "totals-type", "totals-from", "totals-to"]) {
@@ -606,6 +625,9 @@ function openFlightDialog(flightId = null) {
   flightForm.elements.landings.value = f ? f.landings : 1;
   flightForm.elements.nightTakeoffs.value = f ? (f.nightTakeoffs || 0) : 0;
   flightForm.elements.nightLandings.value = f ? (f.nightLandings || 0) : 0;
+  flightForm.elements.waterTakeoffs.value = f ? (f.waterTakeoffs || 0) : 0;
+  flightForm.elements.waterLandings.value = f ? (f.waterLandings || 0) : 0;
+  flightForm.elements.approaches.value = f ? (f.approaches || 0) : 0;
   flightForm.elements.remarks.value = f ? (f.remarks || "") : "";
   buildCategoryInputs(f ? f.hoursBy : {});
 
@@ -625,6 +647,9 @@ flightForm.addEventListener("submit", e => {
   const landings = parseInt(el.landings.value, 10);
   const nightTakeoffs = parseInt(el.nightTakeoffs.value, 10) || 0;
   const nightLandings = parseInt(el.nightLandings.value, 10) || 0;
+  const waterTakeoffs = parseInt(el.waterTakeoffs.value, 10) || 0;
+  const waterLandings = parseInt(el.waterLandings.value, 10) || 0;
+  const approaches = parseInt(el.approaches.value, 10) || 0;
 
   const problems = [];
   if (!date) problems.push("date");
@@ -640,6 +665,16 @@ flightForm.addEventListener("submit", e => {
   }
   if (nightTakeoffs > takeoffs || nightLandings > landings || nightTakeoffs < 0 || nightLandings < 0) {
     errBox.textContent = "Night takeoffs/landings can't exceed the flight's total takeoffs/landings.";
+    errBox.hidden = false;
+    return;
+  }
+  if (waterTakeoffs > takeoffs || waterLandings > landings || waterTakeoffs < 0 || waterLandings < 0) {
+    errBox.textContent = "Water takeoffs/landings can't exceed the flight's total takeoffs/landings.";
+    errBox.hidden = false;
+    return;
+  }
+  if (approaches < 0) {
+    errBox.textContent = "Instrument approaches can't be negative.";
     errBox.hidden = false;
     return;
   }
@@ -666,7 +701,8 @@ flightForm.addEventListener("submit", e => {
     aircraftId: el.aircraftId.value,
     from, to,
     hours: roundedHours,
-    takeoffs, landings, nightTakeoffs, nightLandings, hoursBy,
+    takeoffs, landings, nightTakeoffs, nightLandings,
+    waterTakeoffs, waterLandings, approaches, hoursBy,
     remarks: el.remarks.value.trim(),
   };
 
@@ -814,13 +850,14 @@ $("#export-json").addEventListener("click", () => {
 $("#export-csv").addEventListener("click", () => {
   const q = v => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const header = ["Date", "Registration", "Make", "Model", "From", "To", "Hours", "Takeoffs", "Landings",
-    "Night Takeoffs", "Night Landings",
+    "Night Takeoffs", "Night Landings", "Water Takeoffs", "Water Landings", "Instrument Approaches",
     ...FLAGS.map(fl => FLAG_SHORT[fl.key]), "Remarks"];
   const rows = [...sortedFlights()].reverse().map(f => {
     const a = aircraftById(f.aircraftId);
     return [
       f.date, a?.reg ?? "", a?.make ?? "", a?.model ?? "", f.from, f.to,
       f.hours, f.takeoffs, f.landings, f.nightTakeoffs || 0, f.nightLandings || 0,
+      f.waterTakeoffs || 0, f.waterLandings || 0, f.approaches || 0,
       ...FLAGS.map(fl => (f.hoursBy[fl.key] > 0 ? f.hoursBy[fl.key] : "")),
       f.remarks ?? "",
     ].map(q).join(",");
@@ -929,6 +966,9 @@ function importFlightsCSV(rows) {
       takeoffs, landings,
       nightTakeoffs: Math.min(count(get(row, "Night Takeoffs")), takeoffs),
       nightLandings: Math.min(count(get(row, "Night Landings")), landings),
+      waterTakeoffs: Math.min(count(get(row, "Water Takeoffs")), takeoffs),
+      waterLandings: Math.min(count(get(row, "Water Landings")), landings),
+      approaches: count(get(row, "Instrument Approaches")),
       hoursBy,
       remarks: get(row, "Remarks"),
     });
